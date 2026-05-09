@@ -1,0 +1,775 @@
+npx create-expo-app who-is-faking-it
+cd who-is-faking-it
+npm install @react-navigation/native @react-navigation/native-stack
+npm install react-native-safe-area-context react-native-screens
+npm install @react-native-async-storage/async-storage
+npm install react-native-svg
+npm install react-native-wheel-picker-expo 
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  TextInput,
+  ScrollView,
+  Alert,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const COLORS = {
+  primary: '#5B7FFF',
+  secondary: '#F2F4F8',
+  accent: '#6ECF8D',
+  gray: '#A0A0A0',
+  dark: '#222',
+  white: '#FFF',
+  red: '#FF6666',
+};
+
+const DEFAULT_SETS = [
+  {
+    id: 'number-pressure',
+    name: 'Number Pressure',
+    active: true,
+    editable: false,
+    cards: [
+      {
+        innocent: 'Out of 10, how many times have you eaten fast food this past week?',
+        faker: 'You are the Faker',
+      },
+      {
+        innocent: 'On a scale of 10, how much do you like Orange Juice?',
+        faker: 'You are the Faker',
+      },
+    ],
+  },
+  {
+    id: 'pointy',
+    name: 'Pointy',
+    active: true,
+    editable: false,
+    cards: [
+      {
+        innocent: 'Point to the person that lies the most',
+        faker: 'You are the Faker',
+      },
+      {
+        innocent: 'Point to the person with the worst drip',
+        faker: 'You are the Faker',
+      },
+    ],
+  },
+  {
+    id: 'face-time',
+    name: 'Face-Time',
+    active: true,
+    editable: false,
+    cards: [
+      {
+        innocent: 'Your TRYING to act cool',
+        faker: 'You are the Faker',
+      },
+      {
+        innocent: 'Your eating your favorite food',
+        faker: 'You are the Faker',
+      },
+    ],
+  },
+  {
+    id: 'show-of-hands',
+    name: 'Show of Hands',
+    active: true,
+    editable: false,
+    cards: [
+      {
+        innocent: 'Raise your hand if you prefer chicken over beef',
+        faker: 'You are the Faker',
+      },
+      {
+        innocent: 'Raise your hand if you believe sandals should be allowed in school',
+        faker: 'You are the Faker',
+      },
+    ],
+  },
+  {
+    id: 'questionnaire',
+    name: 'Questionnaire',
+    active: true,
+    editable: false,
+    cards: [
+      {
+        innocent:
+          '1. What article of clothing would you spend the most money on?\n2. If you could meet any celebrity, who would it be?',
+        faker:
+          '1. What article of clothing stands out the most when missing?\n2. Who is the most famous person in the world?',
+      },
+      {
+        innocent:
+          '1. What is the best pet?\n2. What is your least favorite food?',
+        faker:
+          '1. What is your favorite animal?\n2. What is the most exotic food you can think of?',
+      },
+    ],
+  },
+];
+
+export default function App() {
+  const [screen, setScreen] = useState('home');
+  const [players, setPlayers] = useState([]);
+  const [playerCount, setPlayerCount] = useState(3);
+  const [conversationTime, setConversationTime] = useState(60);
+  const [sets, setSets] = useState(DEFAULT_SETS);
+  const [selectedSet, setSelectedSet] = useState(null);
+  const [fakerIndex, setFakerIndex] = useState(null);
+  const [round, setRound] = useState(1);
+  const [usedSets, setUsedSets] = useState([]);
+  const [currentCard, setCurrentCard] = useState(null);
+  const [voteTarget, setVoteTarget] = useState(null);
+  const [revealedCards, setRevealedCards] = useState([]);
+  const [countdown, setCountdown] = useState(5);
+  const [discussionTimer, setDiscussionTimer] = useState(60);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    saveData();
+  }, [players, playerCount, conversationTime, sets]);
+
+  const activeSets = useMemo(() => {
+    return sets.filter((s) => s.active && s.cards.length > 0);
+  }, [sets]);
+
+  const validPlayers = players.filter((p) => p.name.trim() !== '');
+
+  const playEnabled = validPlayers.length >= 3 && activeSets.length >= 3;
+
+  const loadData = async () => {
+    const savedPlayers = await AsyncStorage.getItem('players');
+    const savedSets = await AsyncStorage.getItem('sets');
+    const savedTime = await AsyncStorage.getItem('time');
+    const savedCount = await AsyncStorage.getItem('count');
+
+    if (savedPlayers) setPlayers(JSON.parse(savedPlayers));
+    else {
+      setPlayers([
+        { name: '', points: 0 },
+        { name: '', points: 0 },
+        { name: '', points: 0 },
+      ]);
+    }
+
+    if (savedSets) setSets(JSON.parse(savedSets));
+    if (savedTime) setConversationTime(Number(savedTime));
+    if (savedCount) setPlayerCount(Number(savedCount));
+  };
+
+  const saveData = async () => {
+    await AsyncStorage.setItem('players', JSON.stringify(players));
+    await AsyncStorage.setItem('sets', JSON.stringify(sets));
+    await AsyncStorage.setItem('time', String(conversationTime));
+    await AsyncStorage.setItem('count', String(playerCount));
+  };
+
+  const updatePlayerCount = (count) => {
+    setPlayerCount(count);
+
+    let updated = [...players];
+
+    if (count > updated.length) {
+      while (updated.length < count) {
+        updated.push({ name: '', points: 0 });
+      }
+    } else {
+      updated = updated.slice(0, count);
+    }
+
+    setPlayers(updated);
+  };
+
+  const startGame = () => {
+    const faker = Math.floor(Math.random() * validPlayers.length);
+
+    setFakerIndex(faker);
+    setRound(1);
+    setUsedSets([]);
+    setScreen('wheel');
+  };
+
+  const randomSet = () => {
+    const available = activeSets.filter((s) => !usedSets.includes(s.id));
+    const chosen = available[Math.floor(Math.random() * available.length)];
+
+    setSelectedSet(chosen);
+    setUsedSets([...usedSets, chosen.id]);
+  };
+
+  const continueToCards = () => {
+    const randomCard =
+      selectedSet.cards[
+        Math.floor(Math.random() * selectedSet.cards.length)
+      ];
+
+    setCurrentCard(randomCard);
+    setRevealedCards([]);
+    setScreen('cards');
+  };
+
+  const revealCard = (index) => {
+    if (revealedCards.includes(index)) return;
+
+    setRevealedCards([...revealedCards, index]);
+  };
+
+  const beginCountdown = () => {
+    setCountdown(5);
+    setScreen('countdown');
+
+    let timer = 5;
+
+    const interval = setInterval(() => {
+      timer--;
+      setCountdown(timer);
+
+      if (timer <= 0) {
+        clearInterval(interval);
+        beginDiscussion();
+      }
+    }, 1000);
+  };
+
+  const beginDiscussion = () => {
+    setDiscussionTimer(conversationTime);
+    setScreen('discussion');
+
+    let timer = conversationTime;
+
+    const interval = setInterval(() => {
+      timer--;
+      setDiscussionTimer(timer);
+
+      if (timer <= 0) {
+        clearInterval(interval);
+        setScreen('decision');
+      }
+    }, 1000);
+  };
+
+  const endDiscussionEarly = () => {
+    setScreen('decision');
+  };
+
+  const submitVote = () => {
+    const fakerPlayer = validPlayers[fakerIndex];
+
+    const updatedPlayers = [...players];
+
+    const fakerWon = voteTarget !== fakerIndex;
+
+    updatedPlayers.forEach((player, index) => {
+      if (fakerWon) {
+        if (index === fakerIndex) {
+          if (round === 1) player.points += 1;
+          if (round === 2) player.points += 3;
+          if (round === 3) player.points += 5;
+        }
+      } else {
+        if (index !== fakerIndex) {
+          if (round === 1) player.points += 5;
+          if (round === 2) player.points += 3;
+          if (round === 3) player.points += 1;
+        }
+      }
+    });
+
+    setPlayers(updatedPlayers);
+
+    setScreen('reveal');
+  };
+
+  const continueRound = () => {
+    if (round >= 3) {
+      setScreen('voteOnly');
+      return;
+    }
+
+    setRound(round + 1);
+    setScreen('wheel');
+  };
+
+  const resetPlayers = () => {
+    const reset = players.map(() => ({
+      name: '',
+      points: 0,
+    }));
+
+    setPlayers(reset);
+  };
+
+  return (
+    <ScrollView style={styles.container}>
+      {screen === 'home' && (
+        <View style={styles.centered}>
+          <Text style={styles.title}>Who is Faking It</Text>
+
+          <TouchableOpacity
+            style={[
+              styles.bigButton,
+              !playEnabled && { backgroundColor: COLORS.gray },
+            ]}
+            disabled={!playEnabled}
+            onPress={startGame}
+          >
+            <Text style={styles.buttonText}>Play</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.bigButton}
+            onPress={() => setScreen('options')}
+          >
+            <Text style={styles.buttonText}>Options</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {screen === 'options' && (
+        <View>
+          <TouchableOpacity onPress={() => setScreen('home')}>
+            <Text style={styles.back}>⬅️</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.optionButton}
+            onPress={() => setScreen('players')}
+          >
+            <Text style={styles.buttonText}>Number of Players</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.optionButton}
+            onPress={() => setScreen('time')}
+          >
+            <Text style={styles.buttonText}>Conversation Time</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.optionButton}
+            onPress={() => setScreen('sets')}
+          >
+            <Text style={styles.buttonText}>Edit Sets</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {screen === 'players' && (
+        <View>
+          <TouchableOpacity onPress={() => setScreen('options')}>
+            <Text style={styles.back}>⬅️</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.subtitle}>Players</Text>
+
+          {[3, 4, 5, 6, 7, 8].map((num) => (
+            <TouchableOpacity
+              key={num}
+              style={styles.smallButton}
+              onPress={() => updatePlayerCount(num)}
+            >
+              <Text>{num}</Text>
+            </TouchableOpacity>
+          ))}
+
+          {players.map((player, index) => (
+            <View key={index} style={styles.playerRow}>
+              <TextInput
+                value={player.name}
+                placeholder={`Player ${index + 1}`}
+                style={styles.input}
+                onChangeText={(text) => {
+                  const updated = [...players];
+                  updated[index].name = text;
+                  setPlayers(updated);
+                }}
+              />
+
+              <Text style={styles.points}>{player.points} pts</Text>
+            </View>
+          ))}
+
+          <TouchableOpacity
+            style={styles.resetButton}
+            onPress={resetPlayers}
+          >
+            <Text style={styles.buttonText}>Reset</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {screen === 'time' && (
+        <View>
+          <TouchableOpacity onPress={() => setScreen('options')}>
+            <Text style={styles.back}>⬅️</Text>
+          </TouchableOpacity>
+
+          {[30, 60, 90, 120, 150, 180].map((time) => (
+            <TouchableOpacity
+              key={time}
+              style={styles.smallButton}
+              onPress={() => setConversationTime(time)}
+            >
+              <Text>{time} Seconds</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {screen === 'sets' && (
+        <View>
+          <TouchableOpacity onPress={() => setScreen('options')}>
+            <Text style={styles.back}>⬅️</Text>
+          </TouchableOpacity>
+
+          {sets.map((set, index) => (
+            <View key={index} style={styles.setRow}>
+              <Text>{set.name}</Text>
+
+              <TouchableOpacity
+                onPress={() => {
+                  const activeCount = sets.filter((s) => s.active).length;
+
+                  if (set.active && activeCount <= 3) return;
+
+                  const updated = [...sets];
+                  updated[index].active = !updated[index].active;
+                  setSets(updated);
+                }}
+              >
+                <Text
+                  style={{
+                    color: set.active ? COLORS.accent : COLORS.gray,
+                    fontSize: 24,
+                  }}
+                >
+                  ✔
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {screen === 'wheel' && (
+        <View style={styles.centered}>
+          <Text style={styles.title}>Choose a Set</Text>
+
+          {activeSets
+            .filter((s) => !usedSets.includes(s.id))
+            .map((set) => (
+              <Text key={set.id} style={styles.wheelItem}>
+                {set.name}
+              </Text>
+            ))}
+
+          <TouchableOpacity
+            style={styles.bigButton}
+            onPress={randomSet}
+          >
+            <Text style={styles.buttonText}>Spin</Text>
+          </TouchableOpacity>
+
+          {selectedSet && (
+            <TouchableOpacity
+              style={styles.bigButton}
+              onPress={continueToCards}
+            >
+              <Text style={styles.buttonText}>Continue</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {screen === 'cards' && (
+        <View>
+          <Text style={styles.title}>Tap Your Name</Text>
+
+          {validPlayers.map((player, index) => {
+            const viewed = revealedCards.includes(index);
+
+            return (
+              <TouchableOpacity
+                key={index}
+                disabled={viewed}
+                style={[
+                  styles.card,
+                  viewed && { backgroundColor: COLORS.gray },
+                ]}
+                onPress={() => revealCard(index)}
+              >
+                <Text style={styles.cardName}>{player.name}</Text>
+
+                {viewed && (
+                  <Text style={styles.cardPrompt}>
+                    {index === fakerIndex
+                      ? currentCard.faker
+                      : currentCard.innocent}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+
+          {revealedCards.length === validPlayers.length && (
+            <TouchableOpacity
+              style={styles.bigButton}
+              onPress={beginCountdown}
+            >
+              <Text style={styles.buttonText}>Continue</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {screen === 'countdown' && (
+        <View style={styles.centered}>
+          <Text style={styles.timerText}>
+            {countdown === 0 ? 'GO!' : countdown}
+          </Text>
+        </View>
+      )}
+
+      {screen === 'discussion' && (
+        <View style={styles.centered}>
+          <Text style={styles.timerText}>{discussionTimer}</Text>
+
+          <TouchableOpacity
+            style={styles.bigButton}
+            onPress={endDiscussionEarly}
+          >
+            <Text style={styles.buttonText}>End Early</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {screen === 'decision' && (
+        <View style={styles.centered}>
+          <TouchableOpacity
+            style={styles.bigButton}
+            onPress={() => setScreen('vote')}
+          >
+            <Text style={styles.buttonText}>Vote</Text>
+          </TouchableOpacity>
+
+          {round < 3 && (
+            <TouchableOpacity
+              style={styles.bigButton}
+              onPress={continueRound}
+            >
+              <Text style={styles.buttonText}>Continue</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {screen === 'voteOnly' && (
+        <View style={styles.centered}>
+          <TouchableOpacity
+            style={styles.bigButton}
+            onPress={() => setScreen('vote')}
+          >
+            <Text style={styles.buttonText}>Vote</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {screen === 'vote' && (
+        <View>
+          <Text style={styles.title}>Vote</Text>
+
+          {validPlayers.map((player, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[
+                styles.voteButton,
+                voteTarget === index && {
+                  backgroundColor: COLORS.accent,
+                },
+              ]}
+              onPress={() => setVoteTarget(index)}
+            >
+              <Text>{player.name}</Text>
+            </TouchableOpacity>
+          ))}
+
+          {voteTarget !== null && (
+            <TouchableOpacity
+              style={styles.bigButton}
+              onPress={submitVote}
+            >
+              <Text style={styles.buttonText}>Submit</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {screen === 'reveal' && (
+        <View style={styles.centered}>
+          <Text style={styles.title}>The Faker Was</Text>
+
+          <Text style={styles.imposterName}>
+            {validPlayers[fakerIndex]?.name}
+          </Text>
+
+          <Text style={styles.pointsHeader}>Points</Text>
+
+          {players.map((player, index) => (
+            <Text key={index} style={styles.pointsLine}>
+              {player.name} - {player.points}
+            </Text>
+          ))}
+
+          <TouchableOpacity
+            style={styles.bigButton}
+            onPress={() => setScreen('home')}
+          >
+            <Text style={styles.buttonText}>Back</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+    padding: 20,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 60,
+  },
+  title: {
+    fontSize: 34,
+    fontWeight: 'bold',
+    color: COLORS.dark,
+    marginBottom: 25,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 26,
+    marginBottom: 15,
+    fontWeight: '600',
+  },
+  bigButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 18,
+    paddingHorizontal: 40,
+    borderRadius: 999,
+    marginVertical: 10,
+    minWidth: 220,
+    alignItems: 'center',
+  },
+  optionButton: {
+    backgroundColor: COLORS.primary,
+    padding: 20,
+    borderRadius: 25,
+    marginVertical: 10,
+  },
+  smallButton: {
+    backgroundColor: COLORS.secondary,
+    padding: 15,
+    borderRadius: 18,
+    marginVertical: 5,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: COLORS.white,
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: COLORS.gray,
+    borderRadius: 15,
+    padding: 12,
+    flex: 1,
+    marginRight: 10,
+  },
+  playerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  points: {
+    width: 70,
+    textAlign: 'right',
+  },
+  back: {
+    fontSize: 28,
+    marginBottom: 15,
+  },
+  resetButton: {
+    backgroundColor: COLORS.red,
+    padding: 18,
+    borderRadius: 999,
+    marginTop: 25,
+    alignItems: 'center',
+  },
+  setRow: {
+    backgroundColor: COLORS.secondary,
+    padding: 18,
+    borderRadius: 18,
+    marginVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  wheelItem: {
+    fontSize: 22,
+    marginVertical: 8,
+  },
+  card: {
+    backgroundColor: COLORS.secondary,
+    padding: 20,
+    borderRadius: 20,
+    marginVertical: 10,
+  },
+  cardName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  cardPrompt: {
+    fontSize: 18,
+    lineHeight: 28,
+  },
+  timerText: {
+    fontSize: 90,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+  },
+  voteButton: {
+    backgroundColor: COLORS.secondary,
+    padding: 20,
+    borderRadius: 20,
+    marginVertical: 8,
+  },
+  imposterName: {
+    fontSize: 40,
+    fontWeight: 'bold',
+    marginBottom: 35,
+  },
+  pointsHeader: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 15,
+  },
+  pointsLine: {
+    fontSize: 22,
+    marginVertical: 4,
+  },
+});
